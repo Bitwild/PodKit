@@ -1,5 +1,8 @@
 require 'cocoapods'
 
+# http://www.rubydoc.info/github/CocoaPods/Xcodeproj/Xcodeproj/Project
+# http://www.rubydoc.info/gems/cocoapods/Pod/Installer
+
 # Redefine build phase prefix – we don't want fucking [CP] in front on phases.
 class Pod::Installer::UserProjectIntegrator::TargetIntegrator
   remove_const(:BUILD_PHASE_PREFIX)
