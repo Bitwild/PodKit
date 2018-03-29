@@ -61,6 +61,7 @@ module PodKit
   # Here we include standard xenomorph configuration.
   def self.post_install(installer)
     include_names = {
+      'bundle.ui-testing' => 'Test',
       'bundle.unit-test' => 'Test',
       'application' => 'macOS/macOS - Application',
       'framework' => 'macOS/macOS - Framework',
