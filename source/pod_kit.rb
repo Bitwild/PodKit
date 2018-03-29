@@ -60,7 +60,6 @@ module PodKit
 
   # Here we include standard xenomorph configuration.
   def self.post_install(installer)
-    project = installer.aggregate_targets[0].user_project
     include_names = {
       'bundle.unit-test' => 'Test',
       'application' => 'macOS/macOS - Application',
@@ -70,8 +69,24 @@ module PodKit
     }
 
     installer.pods_project.targets.each do |target|
-      next unless installer.aggregate_targets.index { |t| t.native_target.uuid == target.uuid }
-      next unless (project_target = project.targets.select { |t| t.name == target.name.gsub(/^Pods-/, '') }.first)
+
+      # First must check that target is native – one of our own in the project.
+      # Find project target.
+
+      aggregate_target = installer.aggregate_targets.find { |t| t.native_target.uuid == target.uuid }
+      next if aggregate_target.nil?
+
+      unless aggregate_target.user_target_uuids.count == 1
+        puts "PodKit hasn't discovered any UUIDs in aggregate target needed to acquire native target – please contact developer.".red() if aggregate_target.user_target_uuids.count < 1
+        puts "PodKit discovered multiple UUIDs in aggregate target, but knows how to handle only one – please contact developer.".red() if aggregate_target.user_target_uuids.count > 1
+        exit(1)
+      end
+
+      unless (project_target = aggregate_target.user_project.targets.find { |t| t.uuid == aggregate_target.user_target_uuids.first })
+        puts "PodKit couldn't find project target using available target UUID." if project_target.nil?
+        exit(1)
+      end
+
       next unless (target_configuration_name = include_names[project_target.product_type.gsub(/^com\.apple\.product-type\./, '')])
 
       target.build_configurations.each do |config|
