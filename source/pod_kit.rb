@@ -37,6 +37,27 @@ class Pod::Installer
   end
 end
 
+# Override `relative_glob` to allow parent file access. Todo: might be a good idea to implement option support.
+class Pod::Sandbox::PathList
+  alias_method(:relative_glob_old, :relative_glob)
+
+  def relative_glob(patterns, options = {})
+    return [] if patterns.empty?
+
+    cache_key = options.merge(:patterns => patterns)
+    cached_value = @glob_cache[cache_key]
+    return cached_value if cached_value
+
+    list = Array(patterns).flat_map do |pattern|
+      self.root.glob(pattern)
+    end
+
+    list.sort_by! { |pathname| pathname.cleanpath.to_s.downcase }
+
+    @glob_cache[cache_key] = list
+  end
+end
+
 module PodKit
 
   # We want to keep project structure and store fucking pod groups right there. This involves moving them temporary
