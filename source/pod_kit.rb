@@ -21,19 +21,21 @@ class Pod::Installer
   def post_integrate_method
     return if self.aggregate_targets.empty?
     project = self.aggregate_targets[0].user_project
+    dependency_group = project['dependency']
+    cocoa_pods_group = dependency_group['CocoaPods'] || dependency_group.new_group('CocoaPods')
 
     project['Frameworks']&.tap { |group|
-      group.name = 'pod-frameworks'
-      group.move(project['dependency'])
+      group.name = 'Framework'
+      group.move(cocoa_pods_group)
     }
 
     project['Pods']&.tap { |group|
       group.children.each { |child| child.path = child.path.gsub(/^dependency\//, '') }
-      group.name = 'pod-configuration'
-      group.move(project['dependency'])
+      group.name = 'Configuration'
+      group.move(cocoa_pods_group)
     }
 
-    project['dependency']&.sort_by_type()
+    cocoa_pods_group&.sort_by_type()
     project.save()
   end
 end
@@ -66,13 +68,14 @@ module PodKit
   def self.pre_install(installer)
     return if installer.aggregate_targets.empty?
     project = installer.aggregate_targets[0].user_project
+    dependency_group = project['dependency']
 
-    project['dependency']['pod-frameworks']&.tap { |group|
+    (dependency_group['pod-frameworks'] || dependency_group['CocoaPods']['Framework'])&.tap { |group|
       group.name = 'Frameworks'
       group.move(project.main_group)
     }
 
-    project['dependency']['pod-configuration']&.tap { |group|
+    (dependency_group['pod-configuration'] || dependency_group['CocoaPods']['Configuration'])&.tap { |group|
       group.children.each { |child| child.path = "dependency/#{child.path}" }
       group.name = 'Pods'
       group.move(project.main_group)
