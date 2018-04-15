@@ -19,6 +19,7 @@ class Pod::Installer
   end
 
   def post_integrate_method
+    return if self.aggregate_targets.empty?
     project = self.aggregate_targets[0].user_project
 
     project['Frameworks']&.tap { |group|
@@ -63,6 +64,7 @@ module PodKit
   # We want to keep project structure and store fucking pod groups right there. This involves moving them temporary
   # into root category and moving them back when CocoaPods are done.
   def self.pre_install(installer)
+    return if installer.aggregate_targets.empty?
     project = installer.aggregate_targets[0].user_project
 
     project['dependency']['pod-frameworks']&.tap { |group|
