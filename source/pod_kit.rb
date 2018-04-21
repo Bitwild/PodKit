@@ -93,6 +93,7 @@ module PodKit
       'framework' => 'macOS/macOS - Framework',
       'library.dynamic' => 'macOS/macOS - Framework',
       'library.static' => 'macOS/macOS - Framework',
+      'xpc-service' => 'macOS/macOS - Application'
     }
 
     installer.pods_project.targets.each do |target|
