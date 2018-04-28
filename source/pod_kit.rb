@@ -51,13 +51,32 @@ class Pod::Sandbox::PathList
     cached_value = @glob_cache[cache_key]
     return cached_value if cached_value
 
-    list = Array(patterns).flat_map do |pattern|
-      self.root.glob(pattern)
-    end
+    dir_pattern = options[:dir_pattern]
+    exclude_patterns = options[:exclude_patterns]
+    include_dirs = options[:include_dirs]
 
-    list.sort_by! { |pathname| pathname.cleanpath.to_s.downcase }
+    list = Array(patterns).flat_map { |pattern| self.root.glob(pattern, File::FNM_CASEFOLD) }
+
+    # Include subdirectory patterns, `- list` ensures no duplicates, not sure if it matters, though…
+    list += list.select { |pathname| pathname.directory? }.flat_map { |pathname| pathname.glob(dir_pattern, File::FNM_CASEFOLD) } - list unless dir_pattern.nil?
+
+    # Remove matched directories if option explicitly says so.
+    list = list.select { |pathname| !pathname.directory? } if include_dirs === false
+
+    # Convert paths to relative and exclude specified patterns. 
+    list = list.map { |pathname| pathname.relative_path_from(self.root) }
+    list -= relative_glob(exclude_patterns, { :dir_pattern => '**/*', :include_dirs => include_dirs }) unless exclude_patterns.nil? || exclude_patterns.empty?
+
+
+    # To debug differences with original method… also comment out caching.
+    # old_list = relative_glob_old(patterns, options)
+    # missing_list = old_list - list
+    # unexpected_list = list - old_list
+    # raise "Swizzled implementation has #{missing_list.count} missing and #{unexpected_list} unexpected files compared to original implementation." unless missing_list.empty? && unexpected_list.empty?
 
     @glob_cache[cache_key] = list
+
+    return list
   end
 end
 
