@@ -115,12 +115,14 @@ module PodKit
       'xpc-service' => 'macOS/macOS - Application'
     }
 
+    # We're interested in pod targets in our project, so we get pods projects and find targets matching 
+    # aggregated ones. First must check that target is native – one of our own in the project.
     installer.pods_project.targets.each do |target|
 
-      # First must check that target is native – one of our own in the project.
-      # Find project target.
+      # This how we did it in version 1.5.3, but with 1.6.0 the API seem to have changed. Leaving for reference.
+      # aggregate_target = installer.aggregate_targets.find { |t| t.native_target.uuid == target.uuid }
 
-      aggregate_target = installer.aggregate_targets.find { |t| t.native_target.uuid == target.uuid }
+      aggregate_target = installer.aggregate_targets.find { |t| t.target_definition.label == target.name }
       next if aggregate_target.nil?
 
       unless aggregate_target.user_target_uuids.count == 1
@@ -137,8 +139,9 @@ module PodKit
       next unless (target_configuration_name = include_names[project_target.product_type.gsub(/^com\.apple\.product-type\./, '')])
 
       target.build_configurations.each do |config|
+        next if (config = config.base_configuration_reference).nil?
         include_statement = "#include \"../../../git/xenomorph/source/Target/#{target_configuration_name}.xcconfig\"\n\n"
-        config_path = config.base_configuration_reference.real_path
+        config_path = config.real_path
         config_contents = include_statement + File.read(config_path)
         File.open(config_path, 'w') { |fd| fd.write(config_contents) }
       end
