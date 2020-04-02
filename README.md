@@ -8,14 +8,18 @@ Solution is to use pre- and post-install hooks to move groups where CocoaPods wa
 Install PodKit as git submodule:
 
 ```sh
-git submodule add https://github.com/bitwild/podkit dependency/git/podkit
+git submodule add https://github.com/Bitwild/PodKit dependency/Git/PodKit
 git submodule update --init --recursive
 ```
 
 Update `Podfile` to include PodKit and add pre- and post-install hooks:
 
 ```ruby
-require_relative 'git/podkit/source/pod_kit'
+require_relative 'Git/PodKit/source/pod_kit'
+
+include_configuration :application, 'xcconfigs/macOS/macOS-Application.xcconfig'
+include_configuration :framework, 'xcconfigs/macOS/macOS-Framework.xcconfig'
+include_configuration :test, 'xcconfigs/macOS/macOS-XCTest.xcconfig'
 
 pre_install { |installer| PodKit.pre_install(installer) }
 post_install { |installer| PodKit.post_install(installer) }

@@ -3,6 +3,31 @@ require 'cocoapods'
 # http://www.rubydoc.info/github/CocoaPods/Xcodeproj/Xcodeproj/Project
 # http://www.rubydoc.info/gems/cocoapods/Pod/Installer
 
+module PodKit
+  # PodKit defines simplified product for including configurations.
+  PRODUCT_TYPES = {
+    'bundle.ui-testing' => :test,
+    'bundle.unit-test' => :test,
+    'application' => :application,
+    'framework' => :framework,
+    'library.dynamic' => :dynamic_library,
+    'library.static' => :static_library,
+    'xpc-service' => :xpc
+  }
+end
+
+class Pod::Podfile
+  # Included configuration are stored in the podfile.
+  attr_accessor :configuration_includes
+
+  # Includes configuration for the specified product type at the given path relative to the project. 
+  def include_configuration(product_type, path)
+    raise "Invalid product type #{product_type.inspect}, valid values: #{PodKit::PRODUCT_TYPES.values.uniq.map { |p| p.inspect }.join(", ")}" unless PodKit::PRODUCT_TYPES.has_value? product_type
+    self.configuration_includes = {} if configuration_includes.nil?
+    self.configuration_includes[product_type] = path
+  end
+end
+
 # Redefine build phase prefix – we don't want fucking [CP] in front on phases.
 class Pod::Installer::UserProjectIntegrator::TargetIntegrator
   remove_const(:BUILD_PHASE_PREFIX)
@@ -81,6 +106,7 @@ class Pod::Sandbox::PathList
 end
 
 module PodKit
+  require 'pathname'
 
   # We want to keep project structure and store fucking pod groups right there. This involves moving them temporary
   # into root category and moving them back when CocoaPods are done.
@@ -103,17 +129,10 @@ module PodKit
     project.save()
   end
 
-  # Here we include standard xenomorph configuration.
+  # Here we include the provided configurations for configured product types.
   def self.post_install(installer)
-    include_names = {
-      'bundle.ui-testing' => 'Test',
-      'bundle.unit-test' => 'Test',
-      'application' => 'macOS/macOS - Application',
-      'framework' => 'macOS/macOS - Framework',
-      'library.dynamic' => 'macOS/macOS - Framework',
-      'library.static' => 'macOS/macOS - Framework',
-      'xpc-service' => 'macOS/macOS - Application'
-    }
+    configuration_includes = installer.podfile.configuration_includes
+    return if configuration_includes.nil? || configuration_includes.empty?
 
     # We're interested in pod targets in our project, so we get pods projects and find targets matching 
     # aggregated ones. First must check that target is native – one of our own in the project.
@@ -136,14 +155,15 @@ module PodKit
         exit(1)
       end
 
-      next unless (target_configuration_name = include_names[project_target.product_type.gsub(/^com\.apple\.product-type\./, '')])
+      next unless (configuration_include = configuration_includes[PodKit::PRODUCT_TYPES[project_target.product_type.gsub(/^com\.apple\.product-type\./, '')]])
 
       target.build_configurations.each do |config|
         next if (config = config.base_configuration_reference).nil?
-        include_statement = "#include \"../../../git/xenomorph/source/Target/#{target_configuration_name}.xcconfig\"\n\n"
-        config_path = config.real_path
-        config_contents = include_statement + File.read(config_path)
-        File.open(config_path, 'w') { |fd| fd.write(config_contents) }
+        project_path = project_target.project.project_dir
+        config_path = Pathname.new(config.real_path)
+        include_statement = "#include \"#{project_path.relative_path_from(config_path.parent)}/#{configuration_include}\"\n\n"
+        config_contents = include_statement + config_path.read()
+        config_path.write(config_contents)
       end
     end
   end
