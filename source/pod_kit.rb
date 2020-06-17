@@ -1,4 +1,5 @@
 require 'cocoapods'
+require 'xcodeproj'
 
 # http://www.rubydoc.info/github/CocoaPods/Xcodeproj/Xcodeproj/Project
 # http://www.rubydoc.info/gems/cocoapods/Pod/Installer
@@ -17,14 +18,24 @@ module PodKit
 end
 
 class Pod::Podfile
-  # Included configuration are stored in the podfile.
-  attr_accessor :configuration_includes
+  # @return [Hash<Symbol, String>] Custom product configuration.
+  attr_accessor :product_configurations
 
-  # Includes configuration for the specified product type at the given path relative to the project. 
-  def include_configuration(product_type, path)
+  # @return [String] Custom CocoaPods categories location, when specified `Frameworks` and `Pods` CocoaPods groups are moved there.
+  attr_accessor :group_path
+
+  # Sets the base configuration to be included for the given product type.
+  # @param [PodKit::PRODUCT_TYPES] product_type
+  # @param [String] path Configuration file path relative to the project.
+  def configuration(product_type, path)
     raise "Invalid product type #{product_type.inspect}, valid values: #{PodKit::PRODUCT_TYPES.values.uniq.map { |p| p.inspect }.join(", ")}" unless PodKit::PRODUCT_TYPES.has_value? product_type
-    self.configuration_includes = {} if configuration_includes.nil?
-    self.configuration_includes[product_type] = path
+    self.product_configurations = {} if product_configurations.nil?
+    self.product_configurations[product_type] = path
+  end
+
+  # Sets the "stash" location for CocoaPods `Frameworks` and `Pods` groups, so that they are not stored in the root of the project.
+  def group(path)
+    self.group_path = path
   end
 end
 
@@ -40,28 +51,7 @@ class Pod::Installer
 
   def perform_post_install_actions
     perform_post_install_actions_old
-    post_integrate_method
-  end
-
-  def post_integrate_method
-    return if self.aggregate_targets.empty?
-    project = self.aggregate_targets[0].user_project
-    dependency_group = project['dependency']
-    cocoa_pods_group = dependency_group['CocoaPods'] || dependency_group.new_group('CocoaPods')
-
-    project['Frameworks']&.tap { |group|
-      group.name = 'Framework'
-      group.move(cocoa_pods_group)
-    }
-
-    project['Pods']&.tap { |group|
-      group.children.each { |child| child.path = child.path.gsub(/^dependency\//, '') }
-      group.name = 'Configuration'
-      group.move(cocoa_pods_group)
-    }
-
-    cocoa_pods_group&.sort_by_type()
-    project.save()
+    PodKit.post_install_groups(self.podfile, self.aggregate_targets[0].user_project) unless self.aggregate_targets.empty?
   end
 end
 
@@ -108,31 +98,61 @@ end
 module PodKit
   require 'pathname'
 
-  # We want to keep project structure and store fucking pod groups right there. This involves moving them temporary
-  # into root category and moving them back when CocoaPods are done.
-  def self.pre_install(installer)
-    return if installer.aggregate_targets.empty?
-    project = installer.aggregate_targets[0].user_project
-    dependency_group = project['dependency']
+  # Moves standard CocoaPods groups from the stash location.
+  # @param [Pod::Podfile] podfile
+  # @param [Xcodeproj::Project] project
+  def self.pre_install_groups(podfile, project)
+    parent_group = podfile.group_path&.then { |path| project.main_group.find_subpath(path, true) }
+    return if parent_group.nil?
 
-    (dependency_group['pod-frameworks'] || dependency_group['CocoaPods']['Framework'])&.tap { |group|
+    # The `pod-framework` directory is stored at `CocoaPods/Framework`. Check the base name 
+    parent_group['Framework']&.tap { |group|
       group.name = 'Frameworks'
       group.move(project.main_group)
     }
 
-    (dependency_group['pod-configuration'] || dependency_group['CocoaPods']['Configuration'])&.tap { |group|
-      group.children.each { |child| child.path = "dependency/#{child.path}" }
+    parent_group['Configuration']&.tap { |group|
       group.name = 'Pods'
       group.move(project.main_group)
+      group.path = parent_group.path
     }
 
     project.save()
   end
 
+  # Moves standard CocoaPods groups to the stash location.
+  # @param [Pod::Podfile] podfile
+  # @param [Xcodeproj::Project] project
+  def self.post_install_groups(podfile, project)
+    parent_group = podfile.group_path&.then { |path| project.main_group.find_subpath(path, true) }
+    return if parent_group.nil?
+
+    project['Frameworks']&.tap { |group|
+      group.name = 'Framework'
+      group.move(parent_group)
+    }
+
+    project['Pods']&.tap { |group|
+      group.name = 'Configuration'
+      group.path = nil
+      group.children.each { |child| child.path = Pathname.new(child.real_path).relative_path_from(parent_group.real_path).to_path }
+      group.move(parent_group)
+    }
+
+    parent_group.sort_by_type()
+    project.save()
+  end
+
+  # We want to keep project structure and store fucking pod groups right there. This involves moving them temporary
+  # into root category and moving them back when CocoaPods is done.
+  def self.pre_install(installer)
+    self.pre_install_groups(installer.podfile, installer.aggregate_targets[0].user_project) unless installer.aggregate_targets.empty?
+  end
+
   # Here we include the provided configurations for configured product types.
   def self.post_install(installer)
-    configuration_includes = installer.podfile.configuration_includes
-    return if configuration_includes.nil? || configuration_includes.empty?
+    product_configurations = installer.podfile.product_configurations
+    return if product_configurations.nil? || product_configurations.empty?
 
     # We're interested in pod targets in our project, so we get pods projects and find targets matching 
     # aggregated ones. First must check that target is native – one of our own in the project.
@@ -155,7 +175,7 @@ module PodKit
         exit(1)
       end
 
-      next unless (configuration_include = configuration_includes[PodKit::PRODUCT_TYPES[project_target.product_type.gsub(/^com\.apple\.product-type\./, '')]])
+      next unless (configuration_include = product_configurations[PodKit::PRODUCT_TYPES[project_target.product_type.gsub(/^com\.apple\.product-type\./, '')]])
 
       target.build_configurations.each do |config|
         next if (config = config.base_configuration_reference).nil?
