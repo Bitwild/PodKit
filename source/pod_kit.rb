@@ -5,7 +5,7 @@ require 'xcodeproj'
 # http://www.rubydoc.info/gems/cocoapods/Pod/Installer
 
 module PodKit
-  # PodKit defines simplified product for including configurations.
+  # User-friendly target types for including configurations.
   PRODUCT_TYPES = {
     'bundle.ui-testing' => :test,
     'bundle.unit-test' => :test,
@@ -14,6 +14,12 @@ module PodKit
     'library.dynamic' => :dynamic_library,
     'library.static' => :static_library,
     'xpc-service' => :xpc
+  }
+
+  # Customizable CocoaPods phase prefixes.
+  PHASE_PREFIXES = {
+    :build_phase => :BUILD_PHASE_PREFIX,
+    :user_build_phase => :USER_BUILD_PHASE_PREFIX
   }
 end
 
@@ -37,12 +43,15 @@ class Pod::Podfile
   def group(path)
     self.group_path = path
   end
-end
 
-# Redefine build phase prefix – we don't want fucking [CP] in front on phases.
-class Pod::Installer::UserProjectIntegrator::TargetIntegrator
-  remove_const(:BUILD_PHASE_PREFIX)
-  BUILD_PHASE_PREFIX = ''.freeze
+  # Sets the custom CocoaPods phase prefix. Note, that phase prefixes should be different, otherwise CocoaPods will confuse
+  # them and remove phases with build prefixes when processes user-build ones.
+  # @param [PodKit::PHASE_PREFIXES] phase
+  # @param [String] new_prefix New prefix.
+  def prefix(phase, new_prefix)
+    raise "Invalid phase prefix #{phase.inspect}, valid values: #{PodKit::PHASE_PREFIXES.keys.uniq.map { |p| p.inspect }.join(", ")}" unless PodKit::PHASE_PREFIXES.has_key? phase
+    Pod::Installer::UserProjectIntegrator::TargetIntegrator.const_set(PodKit::PHASE_PREFIXES[phase], new_prefix.freeze)
+  end
 end
 
 # Override `perform_post_install_actions` in order to move back groups into dependencies.

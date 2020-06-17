@@ -17,6 +17,9 @@ configure :test, 'xcconfigs/macOS/macOS-XCTest.xcconfig'
 # Use custom location for CocoaPods groups.
 group 'dependency/CocoaPods'
 
+# Remove "[CP]" prefix from CocoaPods build phases.
+prefix :build_phase, ''
+
 # Set up install hooks.
 pre_install { |installer| PodKit.pre_install(installer) }
 post_install { |installer| PodKit.post_install(installer) }
@@ -42,6 +45,12 @@ Include base `*.xcconfig` Xcode build configuration per target type, for example
 - `:static_library`
 - `:test`
 - `:xpc`
+
+##### `prefix :phase, '[CP] '`
+Set custom CocoaPods build phase prefix, handy when you want to completely remove it. Note, phases should use different prefixes, otherwise `:build_phase` will always get removed resulting in undefined behaviour. Use with caution! Supported phases:
+
+- `:build_phase`
+- `:user_build_phase`
 
 ## Installation
 
