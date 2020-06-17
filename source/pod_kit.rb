@@ -6,10 +6,12 @@ require 'xcodeproj'
 
 module PodKit
   # User-friendly target types for including configurations.
+  # @see https://github.com/CocoaPods/Xcodeproj/blob/d9a1ccb053bbfca061fb2c387ca22fadc683c4ed/lib/xcodeproj/constants.rb#L141-L162
   PRODUCT_TYPES = {
     'bundle.ui-testing' => :test,
     'bundle.unit-test' => :test,
     'application' => :application,
+    'tool' => :cli,
     'framework' => :framework,
     'library.dynamic' => :dynamic_library,
     'library.static' => :static_library,
