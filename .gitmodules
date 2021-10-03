@@ -1,3 +1,0 @@
-[submodule "dependency/git/gitignore"]
-	path = dependency/git/gitignore
-	url = https://github.com/bitwild/gitignore
