@@ -32,12 +32,15 @@ class Pod::Podfile
   # @return [String] Custom CocoaPods categories location, when specified `Frameworks` and `Pods` CocoaPods groups are moved there.
   attr_accessor :group_path
 
+  # @return [Hash<String, String>] Custom library force-loads, see `force_load` for details.
+  attr_accessor :force_loads
+
   # Sets the base configuration to be included for the given product type.
   # @param [PodKit::PRODUCT_TYPES] product_type
   # @param [String] path Configuration file path relative to the project.
   def configuration(product_type, path)
     raise "Invalid product type #{product_type.inspect}, valid values: #{PodKit::PRODUCT_TYPES.values.uniq.map { |p| p.inspect }.join(", ")}" unless PodKit::PRODUCT_TYPES.has_value? product_type
-    self.product_configurations = {} if product_configurations.nil?
+    self.product_configurations = {} if self.product_configurations.nil?
     self.product_configurations[product_type] = path
   end
 
@@ -52,7 +55,17 @@ class Pod::Podfile
   # @param [String] new_prefix New prefix.
   def prefix(phase, new_prefix)
     raise "Invalid phase prefix #{phase.inspect}, valid values: #{PodKit::PHASE_PREFIXES.keys.uniq.map { |p| p.inspect }.join(", ")}" unless PodKit::PHASE_PREFIXES.has_key? phase
+    Pod::Installer::UserProjectIntegrator::TargetIntegrator.send(:remove_const, PodKit::PHASE_PREFIXES[phase])
     Pod::Installer::UserProjectIntegrator::TargetIntegrator.const_set(PodKit::PHASE_PREFIXES[phase], new_prefix.freeze)
+  end
+
+  # Causes CocoaPods to not use `-ObjC` linker flag and instead `-force_load` the specified library from the provided path. This is needed
+  # when using CocoaPods with Swift Package Manager – CocoaPods adds `-ObjC` flag for 
+
+  # https://github.com/CocoaPods/CocoaPods/issues/712#issuecomment-38795037
+  def force_load(library, path)
+    self.force_loads = {} if self.force_loads.nil?
+    self.force_loads[library] = path
   end
 end
 
@@ -92,7 +105,6 @@ class Pod::Sandbox::PathList
     # Convert paths to relative and exclude specified patterns. 
     list = list.map { |pathname| pathname.relative_path_from(self.root) }
     list -= relative_glob(exclude_patterns, { :dir_pattern => '**/*', :include_dirs => include_dirs }) unless exclude_patterns.nil? || exclude_patterns.empty?
-
 
     # To debug differences with original method… also comment out caching.
     # old_list = relative_glob_old(patterns, options)
@@ -162,8 +174,9 @@ module PodKit
 
   # Here we include the provided configurations for configured product types.
   def self.post_install(installer)
+    force_loads = installer.podfile.force_loads
     product_configurations = installer.podfile.product_configurations
-    return if product_configurations.nil? || product_configurations.empty?
+    return if (force_loads.nil? || force_loads.empty?) && (product_configurations.nil? || product_configurations.empty?)
 
     # We're interested in pod targets in our project, so we get pods projects and find targets matching 
     # aggregated ones. First must check that target is native – one of our own in the project.
@@ -186,14 +199,22 @@ module PodKit
         exit(1)
       end
 
-      next unless (configuration_include = product_configurations[PodKit::PRODUCT_TYPES[project_target.product_type.gsub(/^com\.apple\.product-type\./, '')]])
-
       target.build_configurations.each do |config|
         next if (config = config.base_configuration_reference).nil?
         project_path = project_target.project.project_dir
         config_path = Pathname.new(config.real_path)
-        include_statement = "#include \"#{project_path.relative_path_from(config_path.parent)}/#{configuration_include}\"\n\n"
-        config_contents = include_statement + config_path.read()
+        config_contents = config_path.read()
+
+        # Include configuration.
+        if (configuration_include = product_configurations&.[](PodKit::PRODUCT_TYPES[project_target.product_type.gsub(/^com\.apple\.product-type\./, '')]))
+          config_contents = "#include \"#{project_path.relative_path_from(config_path.parent)}/#{configuration_include}\"\n\n" + config_contents
+        end
+
+        # Replace `-ObjC` with `-force_load`.
+        unless force_loads.nil? or force_loads.empty?
+          config_contents.gsub!(/^(OTHER_LDFLAGS = )(.*-ObjC.*)$/) { "#{$1}#{force_loads.reduce($2.gsub(/\s*-ObjC\s*/, ' ')) { |f, (k, v)| f.gsub(/-(l|framework )\"#{k}\"/) { |m| "#{m} -force_load \"#{v}\"" } }}" }
+        end
+
         config_path.write(config_contents)
       end
     end
